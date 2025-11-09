@@ -10,7 +10,7 @@ module Core.Maze
   ) where
 
 
-import System.Random (StdGen, randomR)
+import System.Random (StdGen, randomR, split)
 
 type Coord = (Int, Int)
 

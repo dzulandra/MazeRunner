@@ -20,13 +20,14 @@ printMaze = mapM_ (putStrLn . map tileToChar)
 -- Tampilkan jalur (path) di maze dengan karakter '*'
 printMazeWithPath :: Maze -> [Coord] -> IO ()
 printMazeWithPath maze path = do
-  let maze' = foldl (\m p -> setTile m p Empty) maze path
+  let startPos = fromMaybe (-1, -1) (findTile Start maze)
+      goalPos  = fromMaybe (-1, -1) (findTile Goal maze)
       rendered = [ [ charAt (r, c)
                    | c <- [0 .. mazeWidth maze - 1] ]
                  | r <- [0 .. mazeHeight maze - 1] ]
       charAt pos
-        | pos == fromMaybe (-1, -1) (findTile Start maze) = 'S'
-        | pos == fromMaybe (-1, -1) (findTile Goal maze)  = 'G'
+        | pos == startPos = 'S'
+        | pos == goalPos  = 'G'
         | pos `elem` path = '*'
         | otherwise = tileToChar (fromMaybe Wall (getTile maze pos))
   mapM_ putStrLn rendered
@@ -34,19 +35,22 @@ printMazeWithPath maze path = do
 main :: IO ()
 main = do
   putStrLn "=== MazeBreaker: Functional Maze Solver ==="
+  putStrLn ""
   gen <- getStdGen
-  let width  = 10
-      height = 10
+  
+  -- IMPORTANT: Use odd dimensions for best results
+  -- The algorithm works with cells separated by walls
+  let width  = 21  -- Changed to odd number
+      height = 15  -- Changed to odd number
       maze = generateMaze height width gen
 
-  putStrLn "\nGenerated Maze:\n"
+  putStrLn $ "Generating " ++ show height ++ "x" ++ show width ++ " maze...\n"
   printMaze maze
 
   putStrLn "\nSolving...\n"
   case solveMaze maze of
     Nothing -> putStrLn "[X] No path found."
     Just path -> do
-      putStrLn "[OK] Path found!"
-      print path
+      putStrLn $ "[OK] Path found! Length: " ++ show (length path)
       putStrLn "\nMaze with solution:\n"
       printMazeWithPath maze path
