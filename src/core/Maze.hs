@@ -9,16 +9,18 @@ module Core.Maze
   , findTile
   ) where
 
-
-import System.Random (StdGen, randomR, split)
+import System.Random (StdGen, randomR)
 
 type Coord = (Int, Int)
 
+-- Added new tile types: BreakableWall and JumpableWall
 data Tile
   = Empty
   | Wall
   | Start
   | Goal
+  | BreakableWall  -- Can be broken (uses 1 break charge)
+  | JumpableWall   -- Can be jumped over (uses 1 jump charge)
   deriving (Eq, Show)
 
 type Maze = [[Tile]]
