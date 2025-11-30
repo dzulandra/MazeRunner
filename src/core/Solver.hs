@@ -1,11 +1,17 @@
 {-# LANGUAGE RecordWildCards #-}
 
-module Core.Solver (solveMaze, SolverState(..), Move(..)) where
+module Core.Solver (solveMaze, SolverState(..), Move(..), SolverConfig(..)) where
 
 import Core.Maze
 import qualified Data.Set as Set
 import Data.List (sortBy)
 import Data.Ord (comparing)
+
+-- Configuration for solver
+data SolverConfig = SolverConfig
+  { solverMaxBreaks :: Int
+  , solverMaxJumps :: Int
+  } deriving (Show)
 
 -- Move types
 data Move 
@@ -38,14 +44,14 @@ instance Ord SolverState where
 directions :: [Coord]
 directions = [(-1,0), (1,0), (0,-1), (0,1)]
 
--- Main solver function
-solveMaze :: Maze -> Maybe [Move]
-solveMaze maze =
+-- Main solver function with configurable limits
+solveMaze :: Maze -> SolverConfig -> Maybe [Move]
+solveMaze maze config =
   case (findTile Start maze, findTile Goal maze) of
     (Nothing, _) -> Nothing
     (_, Nothing) -> Nothing
     (Just start, Just goal) -> 
-      let initialState = SolverState start 3 2 False []
+      let initialState = SolverState start (solverMaxBreaks config) (solverMaxJumps config) False []
       in astar maze goal (Set.singleton initialState) [initialState]
 
 -- A* algorithm - try without key first, if fails then we need key
@@ -141,7 +147,6 @@ sortByHeuristic goal states =
   let heuristic state = 
         let distToGoal = manhattan (ssPosition state) goal
             pathLen = length (ssPath state)
-            -- No key penalty - let A* find the shortest path naturally
         in distToGoal + pathLen
   in sortBy (comparing heuristic) states
 
