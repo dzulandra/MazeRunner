@@ -137,7 +137,7 @@ generateMazeWithSettings MazeSettings{..} gen =
 runUI :: IO ()
 runUI = do
   let gen = mkStdGen 42
-      window = InWindow "MazeBreaker - Configurable Settings" (windowWidth, windowHeight) (50, 50)
+      window = InWindow "MazeRunner - Configurable Settings" (windowWidth, windowHeight) (50, 50)
       bgColor = makeColorI 30 30 40 255
   play window bgColor 30 (initialState gen) drawGame handleEvent updateGame
 
@@ -395,7 +395,7 @@ drawButton Button{..} bgCol textCol = pictures
   ]
 
 drawTitle :: Picture
-drawTitle = translate (-400) 370 $ scale 0.25 0.25 $ color white $ text "MazeBreaker: Configurable"
+drawTitle = translate (-400) 370 $ scale 0.25 0.25 $ color white $ text "MazeRunner: Configurable"
 
 drawInstructions :: GameState -> Picture
 drawInstructions GameState{..} = pictures
