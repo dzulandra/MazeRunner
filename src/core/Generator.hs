@@ -43,7 +43,7 @@ generateMaze h w config gen =
       keyPos = findMiddlePosition carved startPos
       
       -- Find goal position (farthest from key)
-      goalPos = findFarthestFrom carved startPos
+      goalPos = findFarthestFrom carved keyPos
       
       -- Place gates near goal (may block key initially)
       withGatesRaw = placeGatesNearGoal carved startPos keyPos goalPos g3
@@ -138,9 +138,11 @@ placeGatesNearGoal maze start key goal gen =
                  , getTile maze (r, c) == Just Empty
                  , let pos = (r, c)
                  , pos /= start && pos /= key && pos /= goal
-                 , manhattan pos goal < manhattan pos key
-                 , manhattan pos start > distStartToKey - 3
-                 , manhattan pos goal > 2
+                 -- IMPORTANT: Only place gates CLOSER to goal than key is
+                 , manhattan pos goal < manhattan pos key  -- Closer to goal
+                 , manhattan pos goal < manhattan key goal  -- Closer to goal than key is to goal
+                 , manhattan pos start > distStartToKey  -- Far from start
+                 , manhattan pos goal > 2  -- Not too close to goal
                  ]
       
       sortedByGoalDist = sortBy (comparing (manhattan goal)) allEmpty
@@ -167,7 +169,9 @@ canReachWithoutKey maze start key =
 
 -- Simple BFS pathfinding treating gates as walls
 simplePathfind :: Maze -> Coord -> Coord -> Maybe [Coord]
-simplePathfind maze start goal = bfs [start] Set.empty
+simplePathfind maze start goal 
+  | start == goal = Just [goal]
+  | otherwise = bfs [start] Set.empty
   where
     bfs [] _ = Nothing
     bfs (current:queue) visited
@@ -175,38 +179,45 @@ simplePathfind maze start goal = bfs [start] Set.empty
       | Set.member current visited = bfs queue visited
       | otherwise =
           let visited' = Set.insert current visited
-              neighbors = getSimpleNeighbors maze current
+              neighbors = getSimpleNeighbors current
               newNeighbors = filter (\n -> not (Set.member n visited')) neighbors
               queue' = queue ++ newNeighbors
           in bfs queue' visited'
     
-    getSimpleNeighbors m (r, c) =
+    getSimpleNeighbors (r, c) =
       [ (r', c')
       | (dr, dc) <- directions
       , let r' = r + dr
       , let c' = c + dc
-      , isWalkableWithoutKey m (r', c')
+      , isWalkableWithoutKey (r', c')
       ]
     
-    isWalkableWithoutKey m pos =
-      case getTile m pos of
+    isWalkableWithoutKey pos =
+      case getTile maze pos of
         Just Empty -> True
         Just Key -> True
         Just Start -> True
+        Just Gate -> False  -- IMPORTANT: Gates are NOT walkable without key!
         _ -> False
 
 -- Remove gates that block path from start to key
+-- Strategy: Keep removing gates until key is reachable
 removeBlockingGates :: Maze -> Coord -> Coord -> Maze
-removeBlockingGates maze start key =
-  let allGates = findAllGates maze
-      mazeWithoutBlockingGates = foldl tryRemoveGate maze allGates
-  in mazeWithoutBlockingGates
-  where
-    tryRemoveGate currentMaze gatePos =
-      let mazeWithoutGate = setTile currentMaze gatePos Empty
-      in if canReachWithoutKey mazeWithoutGate start key
-         then mazeWithoutGate
-         else currentMaze
+removeBlockingGates maze start key = 
+  removeGatesUntilReachable maze (findAllGates maze) start key
+
+-- Recursively remove gates until key is reachable
+removeGatesUntilReachable :: Maze -> [Coord] -> Coord -> Coord -> Maze
+removeGatesUntilReachable maze gates start key
+  -- Base case: key is reachable, we're done
+  | canReachWithoutKey maze start key = maze
+  -- No more gates to remove, return current maze
+  | null gates = maze
+  -- Try removing gates one by one
+  | otherwise =
+      let (gate:restGates) = gates
+          mazeWithoutGate = setTile maze gate Empty
+      in removeGatesUntilReachable mazeWithoutGate restGates start key
 
 -- Find all gate positions in maze
 findAllGates :: Maze -> [Coord]
