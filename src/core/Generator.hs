@@ -43,7 +43,7 @@ generateMaze h w config gen =
       keyPos = findMiddlePosition carved startPos
       
       -- Find goal position (farthest from key)
-      goalPos = findFarthestFrom carved startPos
+      goalPos = findFarthestFrom carved keyPos
       
       -- Place gates near goal (may block key initially)
       withGatesRaw = placeGatesNearGoal carved startPos keyPos goalPos g3
@@ -196,17 +196,15 @@ simplePathfind maze start goal = bfs [start] Set.empty
         _ -> False
 
 -- Remove gates that block path from start to key
+-- Strategy: Remove all gates, then put back only those that don't block
 removeBlockingGates :: Maze -> Coord -> Coord -> Maze
 removeBlockingGates maze start key =
   let allGates = findAllGates maze
-      mazeWithoutBlockingGates = foldl tryRemoveGate maze allGates
-  in mazeWithoutBlockingGates
-  where
-    tryRemoveGate currentMaze gatePos =
-      let mazeWithoutGate = setTile currentMaze gatePos Empty
-      in if canReachWithoutKey mazeWithoutGate start key
-         then mazeWithoutGate
-         else currentMaze
+      -- First, remove ALL gates temporarily
+      mazeNoGates = foldl (\m pos -> setTile m pos Empty) maze allGates
+  in if canReachWithoutKey mazeNoGates start key
+     then mazeNoGates  -- Key is reachable, keep all gates removed
+     else maze  -- Something else is blocking, keep original maze
 
 -- Find all gate positions in maze
 findAllGates :: Maze -> [Coord]
