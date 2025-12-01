@@ -43,7 +43,7 @@ generateMaze h w config gen =
       keyPos = findMiddlePosition carved startPos
       
       -- Find goal position (farthest from key)
-      goalPos = findFarthestFrom carved keyPos
+      goalPos = findFarthestFrom carved startPos
       
       -- Place gates near goal (may block key initially)
       withGatesRaw = placeGatesNearGoal carved startPos keyPos goalPos g3
