@@ -9,14 +9,29 @@ import Core.Maze
 import Core.Generator
 import Core.Solver
 import Data.Maybe (fromMaybe)
+import Data.Char (isDigit)
 
+-- ==================== CONSTANTS ====================
 windowWidth, windowHeight :: Int
-windowWidth = 1000
-windowHeight = 750
+windowWidth = 1200
+windowHeight = 800
 
 cellSize :: Float
-cellSize = 25
+cellSize = 20
 
+-- Layout constants for autoscaling and panels
+leftPanelWidth :: Float
+leftPanelWidth = 320     -- matches your settings panel width (rectangleSolid 320 ...)
+
+rightMargin :: Float
+rightMargin = 200        -- reserve space on the right for legend/stats
+
+-- The panel translation used for settings (single source of truth)
+panelOffsetX, panelOffsetY :: Float
+panelOffsetX = (-fromIntegral windowWidth / 2) + 80
+panelOffsetY = 50
+
+-- Button definitions
 data Button = Button 
   { btnX :: Float
   , btnY :: Float
@@ -26,10 +41,56 @@ data Button = Button
   }
 
 newMazeBtn :: Button
-newMazeBtn = Button (-250) (-300) 200 50 "New Maze"
+newMazeBtn = Button (-350) (-350) 200 50 "New Maze"
 
 solveBtn :: Button
-solveBtn = Button 50 (-300) 200 50 "Solve"
+solveBtn = Button (-100) (-350) 200 50 "Solve"
+
+-- Input field definitions (positions are PANEL-LOCAL coordinates now)
+data InputField = InputField
+  { fieldX :: Float       -- local to panel origin
+  , fieldY :: Float       -- local to panel origin
+  , fieldWidth :: Float
+  , fieldHeight :: Float
+  , fieldLabel :: String
+  , fieldId :: String
+  }
+
+-- Settings input fields: X is small because they're relative to the panel translate
+widthField :: InputField
+widthField = InputField 0 150 160 40 "Width:" "width"
+
+heightField :: InputField
+heightField = InputField 0 100 160 40 "Height:" "height"
+
+breakablePercentField :: InputField
+breakablePercentField = InputField 0 40 160 40 "Break %:" "breakPercent"
+
+jumpablePercentField :: InputField
+jumpablePercentField = InputField 0 (-20) 160 40 "Jump %:" "jumpPercent"
+
+maxBreaksField :: InputField
+maxBreaksField = InputField 0 (-80) 160 40 "Max Breaks:" "maxBreaks"
+
+maxJumpsField :: InputField
+maxJumpsField = InputField 0 (-140) 160 40 "Max Jumps:" "maxJumps"
+
+allInputFields :: [InputField]
+allInputFields = [widthField, heightField, breakablePercentField, 
+                  jumpablePercentField, maxBreaksField, maxJumpsField]
+
+-- ==================== GAME STATE ====================
+data MazeSettings = MazeSettings
+  { settingWidth :: Int
+  , settingHeight :: Int
+  , settingBreakablePercent :: Int
+  , settingJumpablePercent :: Int
+  , settingMaxBreaks :: Int
+  , settingMaxJumps :: Int
+  } deriving (Show)
+
+defaultSettings :: MazeSettings
+defaultSettings = MazeSettings 21 15 10 8 3 2
 
 data GameState = GameState
   { gsMaze :: Maze
@@ -37,8 +98,9 @@ data GameState = GameState
   , gsPathIndex :: Int
   , gsAnimating :: Bool
   , gsGen :: StdGen
-  , gsMazeWidth :: Int
-  , gsMazeHeight :: Int
+  , gsSettings :: MazeSettings
+  , gsInputValues :: [(String, String)]  -- Field ID -> Value
+  , gsActiveField :: Maybe String
   , gsBreaksUsed :: Int
   , gsJumpsUsed :: Int
   , gsKeyCollected :: Bool
@@ -49,35 +111,98 @@ instance Show GameState where
 
 initialState :: StdGen -> GameState
 initialState gen = 
-  let w = 21
-      h = 15
-      maze = generateMaze h w gen
+  let settings = defaultSettings
+      maze = generateMazeWithSettings settings gen
       (_, gen') = split gen
-  in GameState maze Nothing 0 False gen' w h 0 0 False
+  in GameState
+     { gsMaze = maze
+     , gsPath = Nothing
+     , gsPathIndex = 0
+     , gsAnimating = False
+     , gsGen = gen'
+     , gsSettings = settings
+     , gsInputValues = []
+     , gsActiveField = Nothing
+     , gsBreaksUsed = 0
+     , gsJumpsUsed = 0
+     , gsKeyCollected = False
+     }
+
+-- Generate maze with custom settings
+generateMazeWithSettings :: MazeSettings -> StdGen -> Maze
+generateMazeWithSettings MazeSettings{..} gen =
+  let config = MazeConfig settingBreakablePercent settingJumpablePercent
+  in generateMaze settingHeight settingWidth config gen
 
 runUI :: IO ()
 runUI = do
   let gen = mkStdGen 42
-      window = InWindow "MazeRunner - Gate System" (windowWidth, windowHeight) (100, 100)
+      window = InWindow "MazeRunner - Configurable Settings" (windowWidth, windowHeight) (50, 50)
       bgColor = makeColorI 30 30 40 255
   play window bgColor 30 (initialState gen) drawGame handleEvent updateGame
 
+-- ==================== RENDERING ====================
+-- Replaced drawGame to draw maze with autoscale so it never overlaps left panel
 drawGame :: GameState -> Picture
 drawGame gs@GameState{..} = pictures
-  [ drawMaze gsMaze gsPath gsPathIndex
+  [ drawMazeAutoScaled gs
   , drawButton newMazeBtn (greyN 0.3) white
   , drawButton solveBtn (greyN 0.3) white
   , drawTitle
   , drawInstructions gs
   , drawLegend
   , drawStats gs
+  , drawSettingsPanel gs
   ]
 
+-- Auto-scale helper: compute scale factor so maze fits inside available area
+calcMazeScale :: Int -> Int -> Float -> Float -> Float -> Float
+calcMazeScale mazeW mazeH cell maxW maxH =
+    let mazePixelW = fromIntegral mazeW * cell
+        mazePixelH = fromIntegral mazeH * cell
+        scaleW = maxW / mazePixelW
+        scaleH = maxH / mazePixelH
+        scaleFactor = min scaleW scaleH
+    in min 1 scaleFactor            -- never zoom in above 100%
+
+-- Draw maze using autoscaling and centering in the available region (to right of left panel)
+drawMazeAutoScaled :: GameState -> Picture
+drawMazeAutoScaled gs@GameState{..} =
+  let w = mazeWidth gsMaze
+      h = mazeHeight gsMaze
+      cell = cellSize
+
+      -- available drawable area (screen minus left panel and right margin)
+      availW = fromIntegral windowWidth - leftPanelWidth - rightMargin
+      availH = fromIntegral windowHeight - 80  -- small vertical margin
+
+      scaleVal = calcMazeScale w h cell availW availH
+
+      -- unscaled maze pixel dims
+      mazePixelW = fromIntegral w * cell
+      mazePixelH = fromIntegral h * cell
+
+      -- compute center of the available region in global (window) coords
+      leftEdgeX = - (fromIntegral windowWidth / 2)
+      availLeftX = leftEdgeX + leftPanelWidth
+      availCenterX = availLeftX + (availW / 2)
+      availCenterY = 0  -- center vertically
+
+      -- we want the maze's own center to be placed at availCenter
+      -- drawMaze expects to draw centered at origin (it uses offsets internally),
+      -- so translate to availCenter then scale then call drawMaze.
+      translateX = availCenterX
+      translateY = availCenterY
+  in translate translateX translateY $
+     scale scaleVal scaleVal $
+     drawMaze gsMaze gsPath gsPathIndex
+
+-- original drawMaze signature preserved (draws maze centered around origin)
 drawMaze :: Maze -> Maybe [Move] -> Int -> Picture
 drawMaze maze mPath pathIdx = 
   let h = mazeHeight maze
       w = mazeWidth maze
-      offsetX = -(fromIntegral w * cellSize) / 2
+      offsetX = fromIntegral w * cellSize / 2
       offsetY = (fromIntegral h * cellSize) / 2 + 50
       
       visibleMoves = case mPath of
@@ -110,7 +235,7 @@ movesToCoords = concatMap moveToCoords
 drawCell :: Maze -> Coord -> [Coord] -> [Move] -> Bool -> Maybe Coord -> Maybe Coord -> Maybe Coord
          -> Float -> Float -> Picture
 drawCell maze pos@(r, c) path moves keyCollected startPos goalPos keyPos offsetX offsetY =
-  let x = offsetX + fromIntegral c * cellSize
+  let x = -offsetX + fromIntegral c * cellSize
       y = offsetY - fromIntegral r * cellSize
       tile = fromMaybe Wall (getTile maze pos)
       
@@ -137,13 +262,131 @@ drawCell maze pos@(r, c) path moves keyCollected startPos goalPos keyPos offsetX
       border = translate x y $ color (greyN 0.2) $ rectangleWire cellSize cellSize
       
       marker = case tile of
-        BreakableWall -> translate x y $ color white $ scale 0.1 0.1 $ text "B"
-        JumpableWall -> translate x y $ color white $ scale 0.1 0.1 $ text "J"
-        Gate -> translate x y $ color white $ scale 0.1 0.1 $ text "G"
-        Key | not keyCollected -> translate x y $ color black $ scale 0.1 0.1 $ text "K"
+        BreakableWall -> translate x y $ color white $ scale 0.08 0.08 $ text "B"
+        JumpableWall -> translate x y $ color white $ scale 0.08 0.08 $ text "J"
+        Gate -> translate x y $ color white $ scale 0.08 0.08 $ text "G"
+        Key | not keyCollected -> translate x y $ color black $ scale 0.08 0.08 $ text "K"
         _ -> blank
   in pictures [cell, border, marker]
 
+-- ==================== SETTINGS PANEL & INPUTS ====================
+-- Draw settings panel (single panel translation), inputs are PANEL-LOCAL
+drawSettingsPanel :: GameState -> Picture
+drawSettingsPanel gs = translate panelOffsetX panelOffsetY $ pictures
+  [ drawSettingsBackground
+  , drawSettingsTitle
+  , drawAllInputFields gs
+  , drawDefaultsNote
+  ]
+
+drawSettingsBackground :: Picture
+drawSettingsBackground =
+  color (makeColorI 60 60 75 255) $ rectangleSolid 320 600
+
+drawSettingsTitle :: Picture
+drawSettingsTitle = translate 0 280 $ scale 0.18 0.18 $ color white $ text "Settings"
+
+drawAllInputFields :: GameState -> Picture
+drawAllInputFields gs = pictures $ map (drawInputField gs) allInputFields
+
+-- drawInputField now assumes FIELD coords are relative to the panel origin
+-- Improved visuals: larger text, left padding, and caret display while active.
+drawInputField :: GameState -> InputField -> Picture
+drawInputField GameState{..} InputField{..} =
+  let isActive = Just fieldId == gsActiveField
+      currentValue = lookup fieldId gsInputValues
+      baseValue = case currentValue of
+                    Just v -> v
+                    Nothing -> getDefaultValue fieldId gsSettings
+
+      -- Show empty string if user cleared it explicitly (we treat Just "" as empty)
+      displayValueRaw = baseValue
+
+      -- Add a caret when active
+      caret = if isActive then "|" else ""
+      displayValue = displayValueRaw ++ caret
+
+      -- Updated colors: more contrast and active highlight
+      borderColor = if isActive
+                    then makeColorI 150 185 255 255   -- lighter blue border when active
+                    else makeColorI 200 200 220 255   -- light grey border when inactive
+
+      bgColor = if isActive
+                then makeColorI 80 80 110 255     -- slightly darker when active
+                else makeColorI 95 95 120 255     -- normal input background
+
+      -- label & input layout
+      labelOffsetX = -120
+      inputOffsetX = 14
+      leftPadding = 8
+      textScale = 0.16
+      maxChars = 5  -- limit to avoid overflow
+
+      -- trim display string to maxChars (excluding caret)
+      trimmed =
+        let trimmedRaw = take maxChars displayValueRaw
+        in if isActive then trimmedRaw ++ "|" else trimmedRaw
+
+      -- compute text x so text starts inside the input with padding
+      textX = inputOffsetX - (fieldWidth / 2) + leftPadding
+
+  in translate fieldX fieldY $ pictures
+    [ -- Label (brightened, vertically centered)
+      translate labelOffsetX (-5) $
+        scale 0.13 0.13 $
+        color (makeColorI 220 220 230 255) $
+        text fieldLabel
+
+      -- Input background box (centered)
+    , translate inputOffsetX 0 $ color bgColor $ rectangleSolid fieldWidth fieldHeight
+
+      -- Border
+    , translate inputOffsetX 0 $ color borderColor $ rectangleWire fieldWidth fieldHeight
+
+      -- Value text (left-aligned inside the box)
+    , translate textX (-7) $
+        scale textScale textScale $
+        color white $
+        text trimmed
+    ]
+
+-- convert mouse coords (global) to panel-local coords and test with field bounds
+isInsideInputField :: Point -> InputField -> Bool
+isInsideInputField (mx, my) InputField{..} =
+  let localX = mx - panelOffsetX     -- convert to panel-local coords
+      localY = my - panelOffsetY
+      -- input box is centered at (fieldX, fieldY) with width/height
+      left   = fieldX - (fieldWidth / 2)
+      right  = fieldX + (fieldWidth / 2)
+      top    = fieldY + (fieldHeight / 2)
+      bottom = fieldY - (fieldHeight / 2)
+  in localX >= left && localX <= right && localY >= bottom && localY <= top
+
+-- findClickedField uses isInsideInputField which expects panel-local coords
+findClickedField :: Point -> Maybe String
+findClickedField (mx, my) =
+  let matches = filter (\f -> isInsideInputField (mx, my) f) allInputFields
+  in case matches of
+       (field:_) -> Just (fieldId field)
+       [] -> Nothing
+
+getDefaultValue :: String -> MazeSettings -> String
+getDefaultValue "width" s = show (settingWidth s)
+getDefaultValue "height" s = show (settingHeight s)
+getDefaultValue "breakPercent" s = show (settingBreakablePercent s)
+getDefaultValue "jumpPercent" s = show (settingJumpablePercent s)
+getDefaultValue "maxBreaks" s = show (settingMaxBreaks s)
+getDefaultValue "maxJumps" s = show (settingMaxJumps s)
+getDefaultValue _ _ = ""
+
+drawDefaultsNote :: Picture
+drawDefaultsNote =
+  translate 0 (-260) $
+    scale 0.11 0.11 $
+      color (makeColorI 200 200 210 255) $
+        text "Click > Type > Enter"
+
+-- ==================== BUTTONS & OTHER UI ====================
 drawButton :: Button -> Color -> Color -> Picture
 drawButton Button{..} bgCol textCol = pictures
   [ translate btnX btnY $ color bgCol $ rectangleSolid btnWidth btnHeight
@@ -152,22 +395,22 @@ drawButton Button{..} bgCol textCol = pictures
   ]
 
 drawTitle :: Picture
-drawTitle = translate (-320) 340 $ scale 0.3 0.3 $ color white $ text "MazeRunner: Gate System"
+drawTitle = translate (-400) 370 $ scale 0.25 0.25 $ color white $ text "MazeRunner: Configurable"
 
 drawInstructions :: GameState -> Picture
 drawInstructions GameState{..} = pictures
-  [ translate (-320) 300 $ scale 0.12 0.12 $ color (greyN 0.7) $ text status
-  , translate (-320) 270 $ scale 0.12 0.12 $ color (greyN 0.7) $ 
-    text "Collect KEY (K) first, then pass GATES (G) to reach GOAL!"
+  [ translate 100 370 $ scale 0.1 0.1 $ color (greyN 0.7) $ text status
+  , translate 100 350 $ scale 0.1 0.1 $ color (greyN 0.7) $ 
+    text "Collect KEY first, then pass GATES to reach GOAL"
   ]
   where
     status = case (gsPath, gsAnimating) of
-      (Nothing, _) -> "Click 'Solve' to find the path"
-      (Just p, True) -> "Solving... (" ++ show gsPathIndex ++ "/" ++ show (length p) ++ ")"
-      (Just p, False) -> "Solved! Path length: " ++ show (length p)
+      (Nothing, _) -> "Click 'Solve' to find path"
+      (Just p, True) -> "Solving... " ++ show gsPathIndex ++ "/" ++ show (length p)
+      (Just p, False) -> "Solved! Length: " ++ show (length p)
 
 drawLegend :: Picture
-drawLegend = translate 280 280 $ pictures
+drawLegend = translate 480 280 $ pictures
   [ scale 0.12 0.12 $ color white $ text "Legend:"
   , translate 0 (-30) $ color (makeColorI 50 200 50 255) $ rectangleSolid 20 20
   , translate 30 (-35) $ scale 0.1 0.1 $ color white $ text "Start"
@@ -184,38 +427,52 @@ drawLegend = translate 280 280 $ pictures
   ]
 
 drawStats :: GameState -> Picture
-drawStats GameState{..} = translate 280 50 $ pictures
+drawStats GameState{..} = translate 480 50 $ pictures
   [ scale 0.12 0.12 $ color white $ text "Statistics:"
   , translate 0 (-30) $ scale 0.1 0.1 $ color (greyN 0.8) $ 
-    text $ "Breaks used: " ++ show gsBreaksUsed ++ "/3"
+    text $ "Breaks: " ++ show gsBreaksUsed ++ "/" ++ show (settingMaxBreaks gsSettings)
   , translate 0 (-55) $ scale 0.1 0.1 $ color (greyN 0.8) $ 
-    text $ "Jumps used: " ++ show gsJumpsUsed ++ "/2"
+    text $ "Jumps: " ++ show gsJumpsUsed ++ "/" ++ show (settingMaxJumps gsSettings)
   , translate 0 (-80) $ scale 0.1 0.1 $ color (greyN 0.8) $ 
     text $ "Key: " ++ if gsKeyCollected then "Collected!" else "Not yet"
   ]
 
+-- ==================== EVENT HANDLING (INPUT FIXES) ====================
 handleEvent :: Event -> GameState -> GameState
 handleEvent (EventKey (MouseButton LeftButton) Down _ mousePos) gs =
   handleClick mousePos gs
+handleEvent (EventKey (Char c) Down _ _) gs =
+  handleKeyPress c gs
+handleEvent (EventKey (SpecialKey KeyBackspace) Down _ _) gs =
+  handleBackspace gs
+handleEvent (EventKey (SpecialKey KeyEnter) Down _ _) gs =
+  applySettings gs
+handleEvent (EventKey (SpecialKey KeyEsc) Down _ _) gs =
+  gs { gsActiveField = Nothing }
 handleEvent _ gs = gs
 
+-- handleClick: when clicking a field we set it active and clear its value
+-- if it is a different field than the currently active one.
 handleClick :: Point -> GameState -> GameState
 handleClick (mx, my) gs@GameState{..}
   | isInsideButton (mx, my) newMazeBtn =
-      let (gen', gen'') = split gsGen
-          newMaze = generateMaze gsMazeHeight gsMazeWidth gen'
+      let settings = parseSettings gs
+          (gen', gen'') = split gsGen
+          newMaze = generateMazeWithSettings settings gen'
       in gs { gsMaze = newMaze
             , gsPath = Nothing
             , gsPathIndex = 0
             , gsAnimating = False
             , gsGen = gen''
+            , gsSettings = settings
             , gsBreaksUsed = 0
             , gsJumpsUsed = 0
             , gsKeyCollected = False
             }
   
   | isInsideButton (mx, my) solveBtn && not gsAnimating =
-      case solveMaze gsMaze of
+      let solverConfig = SolverConfig (settingMaxBreaks gsSettings) (settingMaxJumps gsSettings)
+      in case solveMaze gsMaze solverConfig of
         Nothing -> gs
         Just path -> 
           let (breaks, jumps, hasKey) = countAbilities path
@@ -227,7 +484,87 @@ handleClick (mx, my) gs@GameState{..}
                 , gsKeyCollected = hasKey
                 }
   
-  | otherwise = gs
+  | otherwise = 
+      -- Check if clicked on input field (global coords)
+      let clickedField = findClickedField (mx, my)
+      in case clickedField of
+           Nothing -> gs { gsActiveField = Nothing }
+           Just fid ->
+             if Just fid == gsActiveField
+             then gs -- already active, keep editing
+             else
+               -- Activate new field and clear its typed content to allow fresh typing
+               let newInputVals = updateList fid "" gsInputValues
+               in gs { gsActiveField = Just fid, gsInputValues = newInputVals }
+
+-- Accept only digit characters and append them (with a max length safeguard)
+handleKeyPress :: Char -> GameState -> GameState
+handleKeyPress c gs@GameState{..} =
+  case gsActiveField of
+    Nothing -> gs
+    Just fieldId ->
+      if isDigit c
+      then
+        let currentValue = lookup fieldId gsInputValues
+            base = case currentValue of
+                     Just v -> v
+                     Nothing -> ""   -- if nothing stored, start fresh
+            maxLen = 5
+            newVal = if length base < maxLen then base ++ [c] else base
+            updatedValues = updateList fieldId newVal gsInputValues
+        in gs { gsInputValues = updatedValues }
+      else gs
+
+handleBackspace :: GameState -> GameState
+handleBackspace gs@GameState{..} =
+  case gsActiveField of
+    Nothing -> gs
+    Just fieldId ->
+      let currentValue = lookup fieldId gsInputValues
+          newValue = case currentValue of
+                      Just v -> if null v then "" else init v
+                      Nothing -> ""
+          updatedValues = updateList fieldId newValue gsInputValues
+      in gs { gsInputValues = updatedValues }
+
+updateList :: String -> String -> [(String, String)] -> [(String, String)]
+updateList key val list =
+  case lookup key list of
+    Just _ -> map (\(k, v) -> if k == key then (key, val) else (k, v)) list
+    Nothing -> (key, val) : list
+
+applySettings :: GameState -> GameState
+applySettings gs@GameState{..} = 
+  let newSettings = parseSettings gs
+      (gen', gen'') = split gsGen
+      newMaze = generateMazeWithSettings newSettings gen'
+  in gs { gsSettings = newSettings
+        , gsMaze = newMaze
+        , gsPath = Nothing
+        , gsPathIndex = 0
+        , gsAnimating = False
+        , gsGen = gen''
+        , gsBreaksUsed = 0
+        , gsJumpsUsed = 0
+        , gsKeyCollected = False
+        , gsActiveField = Nothing
+        }
+
+parseSettings :: GameState -> MazeSettings
+parseSettings GameState{..} =
+  let width = parseField "width" (settingWidth gsSettings)
+      height = parseField "height" (settingHeight gsSettings)
+      breakPercent = parseField "breakPercent" (settingBreakablePercent gsSettings)
+      jumpPercent = parseField "jumpPercent" (settingJumpablePercent gsSettings)
+      maxBreaks = parseField "maxBreaks" (settingMaxBreaks gsSettings)
+      maxJumps = parseField "maxJumps" (settingMaxJumps gsSettings)
+  in MazeSettings width height breakPercent jumpPercent maxBreaks maxJumps
+  where
+    parseField fieldId defaultVal =
+      case lookup fieldId gsInputValues of
+        Just "" -> defaultVal
+        Just v -> read v :: Int
+        Nothing -> defaultVal
 
 countAbilities :: [Move] -> (Int, Int, Bool)
 countAbilities moves = foldl count (0, 0, False) moves
