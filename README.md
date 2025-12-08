@@ -19,7 +19,7 @@ An interactive maze puzzle game demonstrating **functional programming concepts*
 
 ## 🎯 What is This Project?
 
-MazeBreaker is a **visual demonstration** of functional programming principles applied to:
+MazeRunner is a **visual demonstration** of functional programming principles applied to:
 - **Procedural maze generation** (recursive backtracking)
 - **Pathfinding algorithms** (A* with resource constraints)
 - **Game state management** (immutable data structures)
@@ -29,7 +29,6 @@ MazeBreaker is a **visual demonstration** of functional programming principles a
 - 🎲 Generates unique, guaranteed-solvable mazes
 - 🔑 Gate system requiring key collection
 - 🧱 Breakable/jumpable walls with limited uses
-- 🤖 A* pathfinding with heuristics
 - ⚙️ Configurable settings (size, difficulty, resources)
 
 ---
@@ -101,7 +100,7 @@ sudo apt-get install freeglut3 freeglut3-dev libglu1-mesa-dev
 ```bash
 # Clone repository
 git clone <repository-url>
-cd mazebreaker
+cd mazerunner
 
 # Build project (like 'npm install' or 'mvn compile')
 cabal build
@@ -358,7 +357,10 @@ executeMove (PassGate pos) = ...
 - ✅ Self-documenting code
 - ✅ Pattern matching guarantees completeness
 
---- 
+---
+
+
+**Every step is a pure function - no mutations anywhere!**
 
 ## 🙏 Acknowledgments
 
