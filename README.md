@@ -20,7 +20,7 @@ An interactive maze puzzle game demonstrating **functional programming concepts*
 
 ## 🎯 What is This Project?
 
-MazeBreaker is a **visual demonstration** of functional programming principles applied to:
+MazeRunner is a **visual demonstration** of functional programming principles applied to:
 - **Procedural maze generation** (recursive backtracking)
 - **Pathfinding algorithms** (A* with resource constraints)
 - **Game state management** (immutable data structures)
@@ -30,7 +30,6 @@ MazeBreaker is a **visual demonstration** of functional programming principles a
 - 🎲 Generates unique, guaranteed-solvable mazes
 - 🔑 Gate system requiring key collection
 - 🧱 Breakable/jumpable walls with limited uses
-- 🤖 A* pathfinding with heuristics
 - ⚙️ Configurable settings (size, difficulty, resources)
 
 ---
@@ -102,7 +101,7 @@ sudo apt-get install freeglut3 freeglut3-dev libglu1-mesa-dev
 ```bash
 # Clone repository
 git clone <repository-url>
-cd mazebreaker
+cd mazerunner
 
 # Build project (like 'npm install' or 'mvn compile')
 cabal build
@@ -359,7 +358,258 @@ executeMove (PassGate pos) = ...
 - ✅ Self-documenting code
 - ✅ Pattern matching guarantees completeness
 
---- 
+---
+
+### 5️⃣ Recursion Instead of Loops
+
+**Concept:** Functions call themselves instead of using `for`/`while` loops.
+
+**Where We Use It:** Maze carving, pathfinding, tree traversal.
+
+**Code Example:**
+```haskell
+-- In Generator.hs - Recursive maze carving
+carveMaze :: Maze -> Coord -> StdGen -> Maze
+carveMaze maze pos gen =
+  let maze' = setTile maze pos Empty
+      (shuffledDirs, gen') = shuffle gen directions
+      (finalMaze, _) = foldl processDir (maze', gen') shuffledDirs
+  in finalMaze
+  where
+    processDir (m, g) dir =
+      if isValidCarve m next
+      then let m3 = carveMaze m2 next g1  -- RECURSIVE CALL
+           in (m3, g2)
+      else (m, g2)
+```
+
+**Comparison:**
+
+**Imperative (Loop with Stack):**
+```java
+// Java - Manual stack management
+void carveMaze(Maze maze, Coord start) {
+    Stack<Coord> stack = new Stack<>();
+    stack.push(start);
+    
+    while (!stack.isEmpty()) {
+        Coord current = stack.pop();
+        maze.setTile(current, EMPTY);  // Mutation
+        
+        for (Direction dir : shuffleDirections()) {
+            Coord next = move2(current, dir);
+            if (isValidCarve(maze, next)) {
+                stack.push(next);  // Manual stack management
+            }
+        }
+    }
+}
+// Manual: loop, stack, mutation
+```
+
+**Functional (Recursive):**
+```haskell
+-- Haskell - Recursion handles backtracking
+carveMaze maze pos gen =
+  let maze' = setTile maze pos Empty       -- Mark current
+      (shuffledDirs, gen') = shuffle gen directions
+      (finalMaze, _) = foldl processDir (maze', gen') shuffledDirs
+  in finalMaze
+  where
+    processDir (m, g) dir =
+      if isValidCarve m next
+      then 
+        let m3 = carveMaze m2 next g1      -- Recurse (automatic backtrack)
+        in (m3, g2)
+      else (m, g2)
+-- Automatic: recursion, call stack, immutability
+```
+
+**Call Stack Visualization:**
+```
+carveMaze at (1,1)
+  ├─ Try RIGHT → valid
+  │  └─ carveMaze at (1,3)
+  │     ├─ Try DOWN → valid
+  │     │  └─ carveMaze at (3,3)
+  │     │     ├─ Try LEFT → invalid
+  │     │     ├─ Try RIGHT → invalid
+  │     │     └─ Return (backtrack)
+  │     └─ Try RIGHT → valid
+  │        └─ carveMaze at (1,5)
+  │           └─ ...
+  └─ Try DOWN → valid
+     └─ carveMaze at (3,1)
+        └─ ...
+```
+
+**Real Example: Finding Tiles**
+```haskell
+-- In Maze.hs - Recursive search
+findTile :: Tile -> Maze -> Maybe Coord
+findTile t maze = go 0 maze
+  where
+    go _ [] = Nothing                    -- Base case: empty
+    go r (row:rs) =                      -- Recursive case
+      case lookupCol 0 row of
+        Just c  -> Just (r, c)           -- Found it!
+        Nothing -> go (r + 1) rs         -- Recurse to next row
+```
+
+**Why This Matters:**
+- ✅ Natural expression of algorithms
+- ✅ No manual loop counter management
+- ✅ Automatic backtracking (call stack)
+- ✅ Compiler optimizations (tail-call)
+- ✅ Matches mathematical definitions
+
+---
+
+### 6️⃣ Type-Driven Development
+
+**Concept:** Design types first, then write functions that work with those types. Compiler guides implementation.
+
+**Where We Use It:** Solver state, maze structure, move types.
+
+**Code Example:**
+```haskell
+-- In Solver.hs - State tracks everything
+data SolverState = SolverState
+  { ssPosition :: Coord       -- Where we are
+  , ssBreaksLeft :: Int       -- Breaks remaining
+  , ssJumpsLeft :: Int        -- Jumps remaining
+  , ssHasKey :: Bool          -- Have we collected key?
+  , ssPath :: [Move]          -- How we got here
+  } deriving (Eq, Show)
+```
+
+**Comparison:**
+
+**Without Type Safety:**
+```python
+# Python - Dictionary (runtime errors)
+state = {
+    "position": (5, 7),
+    "breaks": 3,
+    # BUG: Forgot "jumps" and "hasKey"!
+}
+
+def process_state(state):
+    jumps = state["jumps"]  # KeyError at runtime!
+    # ...
+```
+
+**With Type Safety:**
+```haskell
+-- Haskell - Compiler enforces all fields
+state = SolverState (5, 7) 3 2 False []
+
+-- Can't create incomplete state:
+badState = SolverState (5, 7) 3  -- ERROR: Missing fields
+
+-- Accessing fields is safe:
+processState :: SolverState -> Int
+processState state = ssJumpsLeft state  -- Guaranteed to exist
+
+-- Adding new field? Compiler shows all places to update:
+-- "Fields of SolverState not initialized: ssNewField"
+```
+
+**Real Example: Type-Driven Refactoring**
+```haskell
+-- Original: Simple coordinate tracking
+data OldState = OldState Coord [Move]
+
+-- New: Added resource tracking
+data NewState = NewState Coord Int Int Bool [Move]
+
+-- After adding fields, compiler shows errors at:
+-- - Line 45: Pattern match incomplete
+-- - Line 67: Constructor needs more arguments
+-- - Line 123: Missing field in record update
+-- Fix each error → Refactoring complete!
+
+-- In Python/JavaScript: Find bugs at runtime over weeks
+-- In Haskell: Compiler finds ALL bugs in seconds
+```
+
+**Why This Matters:**
+- ✅ Impossible to forget fields
+- ✅ Refactoring is safe (compiler finds all uses)
+- ✅ Self-documenting types
+- ✅ Less runtime errors
+- ✅ Better IDE support
+
+---
+
+## 🏗️ Project Architecture
+
+```
+mazerunner/
+│
+├── Main.hs                 # Entry point, initializes UI
+│   └── Launches Gloss game loop
+│
+├── UI.hs                   # User interface & rendering
+│   ├── drawGame            # Render everything
+│   ├── handleEvent         # Mouse/keyboard input
+│   ├── updateGame          # Animation loop
+│   └── drawSettingsPanel   # Configurable settings UI
+│
+└── Core/                   # Core logic (pure functions)
+    │
+    ├── Maze.hs             # Data structures
+    │   ├── Tile (ADT)      # Wall, Empty, Gate, Key, etc.
+    │   ├── getTile         # Pure lookup
+    │   ├── setTile         # Immutable update
+    │   └── findTile        # Recursive search
+    │
+    ├── Generator.hs        # Procedural maze generation
+    │   ├── generateMaze    # Main entry point
+    │   ├── carveMaze       # Recursive DFS carving
+    │   ├── placeGates      # Strategic gate placement
+    │   ├── ensureKeyReachable  # BFS verification
+    │   └── addSpecialWalls # Constraint-based placement
+    │
+    └── Solver.hs           # A* pathfinding
+        ├── solveMaze       # Entry point
+        ├── astar           # A* algorithm (recursive)
+        ├── getNeighborStates  # Generate valid moves
+        └── sortByHeuristic # Priority queue sorting
+```
+
+**Data Flow (Pure Functional Pipeline):**
+```
+User clicks "New Maze"
+  ↓
+generateMaze settings gen
+  ↓
+carveMaze (recursive DFS) → carved maze
+  ↓
+placeGates → maze with gates
+  ↓
+ensureKeyReachable (BFS verification) → verified maze
+  ↓
+addSpecialWalls → final maze
+  ↓
+Display in UI
+
+User clicks "Solve"
+  ↓
+solveMaze maze
+  ↓
+astar (A* algorithm) → explores states recursively
+  ↓
+getNeighborStates (generates walk/break/jump moves)
+  ↓
+sortByHeuristic (priority queue)
+  ↓
+Returns path: [Move]
+  ↓
+Animate path in UI
+```
+
+**Every step is a pure function - no mutations anywhere!**
 
 ## 🙏 Acknowledgments
 
