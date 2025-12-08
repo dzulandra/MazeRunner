@@ -15,7 +15,6 @@ An interactive maze puzzle game demonstrating **functional programming concepts*
 - [Quick Start](#quick-start)
 - [Game Features](#game-features)
 - [Functional Programming Concepts Demonstrated](#functional-programming-concepts-demonstrated)
-- [Project Architecture](#project-architecture)
 ---
 
 ## 🎯 What is This Project?
