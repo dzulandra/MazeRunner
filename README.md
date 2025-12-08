@@ -108,7 +108,7 @@ cd mazebreaker
 cabal build
 
 # Run game
-cabal run
+cabal run MazeRunner
 ```
 
 ---
@@ -143,6 +143,8 @@ Every maze is mathematically proven solvable through:
 
 **Concept:** Data never changes after creation. Instead, create new versions with modifications.
 
+**Explanation:** In this project, data never changes after it is created. Instead of modifying existing values, any update produces a new version with the desired changes. This design avoids side effects, making program behavior easier to understand and reason about. Because values cannot be mutated, the same data can be safely shared across different parts of the program without unexpected interactions.
+
 **Where We Use It:** Everywhere! The entire maze is immutable.
 
 **Code Example:**
@@ -155,6 +157,7 @@ setTile maze (r, c) newTile =
   drop (r + 1) maze                           -- Keep rows after
 -- Returns NEW maze, original unchanged
 ```
+**Immutability Explanation:** The setTile function demonstrates immutability by never modifying the original maze. Instead of updating a tile in place, it constructs a new maze by reusing unchanged parts of the old one. The rows before and after the target position are kept as-is, while only the specific row and column are rebuilt with the new tile. This ensures the original maze remains unchanged, making the function predictable and free from side effects.
 
 **Comparison:**
 
@@ -165,25 +168,6 @@ void setTile(int[][] maze, int r, int c, int tile) {
     maze[r][c] = tile;  // Changes original array
 }
 // Risk: Other code might be using maze, now it's different!
-```
-
-**Functional (Immutability):**
-```haskell
--- Haskell - Create new version
-setTile maze (r, c) newTile = ...
--- Returns: New maze with change
--- Original maze still exists, unchanged
--- Benefit: No unexpected side effects, safe to use anywhere
-```
-
-**Real Example in Project:**
-```haskell
--- In Generator.hs, carving the maze
-carved = carveMaze emptyMaze startPos gen
-withGates = placeGates carved start key goal gen
-withSpecial = addSpecialWalls withGates gen
--- Each step creates NEW maze, previous versions still exist
--- Easy to debug: can inspect 'carved', 'withGates', 'withSpecial'
 ```
 
 **Why This Matters:**
@@ -198,53 +182,9 @@ withSpecial = addSpecialWalls withGates gen
 
 **Concept:** Functions that take other functions as arguments or return functions.
 
+**Explanation:** This project uses higher-order functions, meaning functions can take other functions as arguments or return new functions as results. This allows behavior to be passed around just like data, making the code more flexible and reusable. Common patterns such as mapping, filtering, and composing logic are expressed without duplicating code. As a result, complex behavior can be built by combining simple, well-defined functions.
+
 **Where We Use It:** `map`, `filter`, `foldl` throughout the codebase.
-
-**Code Example:**
-```haskell
--- In Generator.hs
-findMeaningfulWalls :: Maze -> [Coord]
-findMeaningfulWalls maze =
-  [ (r, c)
-  | r <- [2 .. mazeHeight maze - 3]
-  , c <- [2 .. mazeWidth maze - 3]
-  , getTile maze (r, c) == Just Wall        -- Filter condition
-  , hasPerpedicularEmptyNeighbors maze (r, c)
-  , not (isIsolatedWall maze (r, c))
-  ]
--- This is syntactic sugar for filter + map
-```
-
-**Comparison:**
-
-**Imperative (Explicit Loops):**
-```python
-# Python - Manual iteration
-def find_meaningful_walls(maze):
-    result = []
-    for r in range(2, len(maze) - 3):
-        for c in range(2, len(maze[0]) - 3):
-            if (get_tile(maze, r, c) == WALL and
-                has_perpendicular_neighbors(maze, r, c) and
-                not is_isolated(maze, r, c)):
-                result.append((r, c))
-    return result
-# Have to manually: create list, iterate, check, append
-```
-
-**Functional (Declarative):**
-```haskell
--- Haskell - Describe what you want
-findMeaningfulWalls maze = 
-  filter isValidWall allPositions
-  where
-    allPositions = [(r,c) | r <- [2..h-3], c <- [2..w-3]]
-    isValidWall (r,c) = 
-      getTile maze (r,c) == Just Wall &&
-      hasPerpedicularEmptyNeighbors maze (r,c) &&
-      not (isIsolatedWall maze (r,c))
--- Describe WHAT, not HOW
-```
 
 **Real Example: `foldl` (Fold Left)**
 ```haskell
@@ -263,6 +203,8 @@ findMeaningfulWalls maze =
 -- Process direction4: processDir (maze3, gen3) dir4 -> (maze4, gen4)
 -- Result: (maze4, gen4)
 ```
+
+**Higher Order Function Explanation:** This code demonstrates a higher-order function through the use of foldl. Instead of manually iterating over directions with a loop, foldl takes processDir as a function argument and applies it across the list. The behavior of “how to process a direction” is passed into foldl, while foldl itself handles the traversal and sequencing. This separation allows logic to be reused and composed cleanly, making control flow declarative rather than step-by-step.
 
 **Imperative Equivalent:**
 ```java
@@ -287,6 +229,8 @@ return result;
 
 **Concept:** Functions with no side effects. Same input always produces same output.
 
+**Explanation:** A pure function always produces the same output for the same input and causes no side effects. It does not modify external state, perform I/O, or depend on hidden data. This makes behavior predictable and easy to test, since the function’s result depends only on its arguments. In this project, pure functions help ensure that logic is reliable and composable, forming a solid foundation for complex operations.
+
 **Where We Use It:** Almost every function in the project.
 
 **Code Example:**
@@ -301,7 +245,13 @@ manhattan (r1, c1) (r2, c2) = abs (r1 - r2) + abs (c1 - c2)
 -- - No global state
 -- - No mutations
 -- - Same inputs ALWAYS give same output
+-- Benefits:
+-- manhattan (1, 2) (4, 6) ALWAYS returns 7
+-- Can call in any order
+-- Easy to test: assertEquals(7, manhattan((1,2), (4,6)))
+-- Compiler can optimize (memoize, parallelize)
 ```
+**Pure FUnction Explanation:** The manhattan function is a pure function: it always returns the same distance for the same pair of coordinates. It depends only on its input values and does not read from or modify any external state. There are no side effects such as I/O, randomness, or mutation involved in the computation. This makes the function easy to test, reason about, and safely reuse throughout the project.
 
 **Comparison:**
 
@@ -323,30 +273,6 @@ def manhattan(p1, p2):
 # - Order of calls matters
 ```
 
-**Pure Function (No Side Effects):**
-```haskell
--- Haskell - Pure
-manhattan :: Coord -> Coord -> Int
-manhattan (r1, c1) (r2, c2) = abs (r1 - r2) + abs (c1 - c2)
-
--- Benefits:
--- manhattan (1, 2) (4, 6) ALWAYS returns 7
--- Can call in any order
--- Easy to test: assertEquals(7, manhattan((1,2), (4,6)))
--- Compiler can optimize (memoize, parallelize)
-```
-
-**Real Example in Project:**
-```haskell
--- In Generator.hs - Every step is pure
-carved = carveMaze emptyMaze startPos gen1     -- Pure: deterministic with same gen1
-keyPos = findMiddlePosition carved startPos    -- Pure: same maze = same result
-goalPos = findFarthestFrom carved keyPos       -- Pure: same inputs = same output
-
--- All testable without mocking or setup:
--- assertEqual expectedMaze (carveMaze initialMaze start fixedGen)
-```
-
 **Why This Matters:**
 - ✅ Easy to test (no mocking needed)
 - ✅ Easy to debug (no hidden state)
@@ -359,6 +285,8 @@ goalPos = findFarthestFrom carved keyPos       -- Pure: same inputs = same outpu
 ### 4️⃣ Algebraic Data Types (ADTs)
 
 **Concept:** Types that precisely model your domain, making invalid states impossible.
+
+**Explanation:** This project uses Algebraic Data Types (ADTs) to model domain concepts explicitly and safely. An ADT defines data by combining values (product types) and choosing between alternatives (sum types). This allows the code to represent all valid states of a problem directly in the type system. As a result, many errors are caught at compile time, and pattern matching ensures all possible cases are handled clearly and exhaustively.
 
 **Where We Use It:** Tile types, Move types, Solver state.
 
@@ -385,6 +313,8 @@ data Move
   | PassGate Coord
   deriving (Eq, Show)
 ```
+
+**ADTs Explanation:** The Tile and Move types are Algebraic Data Types that model the game domain using explicit, well-defined alternatives. Each constructor represents a distinct and valid state or action, such as Wall, Gate, or Jump. By encoding these possibilities in the type system, the code prevents invalid states (for example, a jump without coordinates). Pattern matching on these types makes logic clear and ensures all cases are handled explicitly. This leads to safer, more readable code where game rules are enforced by the types themselves.
 
 **Comparison:**
 
@@ -422,22 +352,6 @@ executeMove (PassGate pos) = ...
 -- Forgot a case? Compiler error!
 ```
 
-**Real Example in Project:**
-```haskell
--- In Solver.hs - Pattern matching on moves
-movesToCoords :: [Move] -> [Coord]
-movesToCoords = concatMap moveToCoords
-  where
-    moveToCoords (Walk pos) = [pos]
-    moveToCoords (Break pos) = [pos]
-    moveToCoords (Jump _ to) = [to]      -- Compiler knows Jump has 2 coords
-    moveToCoords (CollectKey pos) = [pos]
-    moveToCoords (PassGate pos) = [pos]
-
--- If we add new move type, compiler shows error here:
--- "Pattern match not exhaustive"
-```
-
 **Why This Matters:**
 - ✅ Impossible to create invalid data
 - ✅ Compiler catches bugs at compile-time
@@ -445,258 +359,7 @@ movesToCoords = concatMap moveToCoords
 - ✅ Self-documenting code
 - ✅ Pattern matching guarantees completeness
 
----
-
-### 5️⃣ Recursion Instead of Loops
-
-**Concept:** Functions call themselves instead of using `for`/`while` loops.
-
-**Where We Use It:** Maze carving, pathfinding, tree traversal.
-
-**Code Example:**
-```haskell
--- In Generator.hs - Recursive maze carving
-carveMaze :: Maze -> Coord -> StdGen -> Maze
-carveMaze maze pos gen =
-  let maze' = setTile maze pos Empty
-      (shuffledDirs, gen') = shuffle gen directions
-      (finalMaze, _) = foldl processDir (maze', gen') shuffledDirs
-  in finalMaze
-  where
-    processDir (m, g) dir =
-      if isValidCarve m next
-      then let m3 = carveMaze m2 next g1  -- RECURSIVE CALL
-           in (m3, g2)
-      else (m, g2)
-```
-
-**Comparison:**
-
-**Imperative (Loop with Stack):**
-```java
-// Java - Manual stack management
-void carveMaze(Maze maze, Coord start) {
-    Stack<Coord> stack = new Stack<>();
-    stack.push(start);
-    
-    while (!stack.isEmpty()) {
-        Coord current = stack.pop();
-        maze.setTile(current, EMPTY);  // Mutation
-        
-        for (Direction dir : shuffleDirections()) {
-            Coord next = move2(current, dir);
-            if (isValidCarve(maze, next)) {
-                stack.push(next);  // Manual stack management
-            }
-        }
-    }
-}
-// Manual: loop, stack, mutation
-```
-
-**Functional (Recursive):**
-```haskell
--- Haskell - Recursion handles backtracking
-carveMaze maze pos gen =
-  let maze' = setTile maze pos Empty       -- Mark current
-      (shuffledDirs, gen') = shuffle gen directions
-      (finalMaze, _) = foldl processDir (maze', gen') shuffledDirs
-  in finalMaze
-  where
-    processDir (m, g) dir =
-      if isValidCarve m next
-      then 
-        let m3 = carveMaze m2 next g1      -- Recurse (automatic backtrack)
-        in (m3, g2)
-      else (m, g2)
--- Automatic: recursion, call stack, immutability
-```
-
-**Call Stack Visualization:**
-```
-carveMaze at (1,1)
-  ├─ Try RIGHT → valid
-  │  └─ carveMaze at (1,3)
-  │     ├─ Try DOWN → valid
-  │     │  └─ carveMaze at (3,3)
-  │     │     ├─ Try LEFT → invalid
-  │     │     ├─ Try RIGHT → invalid
-  │     │     └─ Return (backtrack)
-  │     └─ Try RIGHT → valid
-  │        └─ carveMaze at (1,5)
-  │           └─ ...
-  └─ Try DOWN → valid
-     └─ carveMaze at (3,1)
-        └─ ...
-```
-
-**Real Example: Finding Tiles**
-```haskell
--- In Maze.hs - Recursive search
-findTile :: Tile -> Maze -> Maybe Coord
-findTile t maze = go 0 maze
-  where
-    go _ [] = Nothing                    -- Base case: empty
-    go r (row:rs) =                      -- Recursive case
-      case lookupCol 0 row of
-        Just c  -> Just (r, c)           -- Found it!
-        Nothing -> go (r + 1) rs         -- Recurse to next row
-```
-
-**Why This Matters:**
-- ✅ Natural expression of algorithms
-- ✅ No manual loop counter management
-- ✅ Automatic backtracking (call stack)
-- ✅ Compiler optimizations (tail-call)
-- ✅ Matches mathematical definitions
-
----
-
-### 6️⃣ Type-Driven Development
-
-**Concept:** Design types first, then write functions that work with those types. Compiler guides implementation.
-
-**Where We Use It:** Solver state, maze structure, move types.
-
-**Code Example:**
-```haskell
--- In Solver.hs - State tracks everything
-data SolverState = SolverState
-  { ssPosition :: Coord       -- Where we are
-  , ssBreaksLeft :: Int       -- Breaks remaining
-  , ssJumpsLeft :: Int        -- Jumps remaining
-  , ssHasKey :: Bool          -- Have we collected key?
-  , ssPath :: [Move]          -- How we got here
-  } deriving (Eq, Show)
-```
-
-**Comparison:**
-
-**Without Type Safety:**
-```python
-# Python - Dictionary (runtime errors)
-state = {
-    "position": (5, 7),
-    "breaks": 3,
-    # BUG: Forgot "jumps" and "hasKey"!
-}
-
-def process_state(state):
-    jumps = state["jumps"]  # KeyError at runtime!
-    # ...
-```
-
-**With Type Safety:**
-```haskell
--- Haskell - Compiler enforces all fields
-state = SolverState (5, 7) 3 2 False []
-
--- Can't create incomplete state:
-badState = SolverState (5, 7) 3  -- ERROR: Missing fields
-
--- Accessing fields is safe:
-processState :: SolverState -> Int
-processState state = ssJumpsLeft state  -- Guaranteed to exist
-
--- Adding new field? Compiler shows all places to update:
--- "Fields of SolverState not initialized: ssNewField"
-```
-
-**Real Example: Type-Driven Refactoring**
-```haskell
--- Original: Simple coordinate tracking
-data OldState = OldState Coord [Move]
-
--- New: Added resource tracking
-data NewState = NewState Coord Int Int Bool [Move]
-
--- After adding fields, compiler shows errors at:
--- - Line 45: Pattern match incomplete
--- - Line 67: Constructor needs more arguments
--- - Line 123: Missing field in record update
--- Fix each error → Refactoring complete!
-
--- In Python/JavaScript: Find bugs at runtime over weeks
--- In Haskell: Compiler finds ALL bugs in seconds
-```
-
-**Why This Matters:**
-- ✅ Impossible to forget fields
-- ✅ Refactoring is safe (compiler finds all uses)
-- ✅ Self-documenting types
-- ✅ Less runtime errors
-- ✅ Better IDE support
-
----
-
-## 🏗️ Project Architecture
-
-```
-mazebreaker/
-│
-├── Main.hs                 # Entry point, initializes UI
-│   └── Launches Gloss game loop
-│
-├── UI.hs                   # User interface & rendering
-│   ├── drawGame            # Render everything
-│   ├── handleEvent         # Mouse/keyboard input
-│   ├── updateGame          # Animation loop
-│   └── drawSettingsPanel   # Configurable settings UI
-│
-└── Core/                   # Core logic (pure functions)
-    │
-    ├── Maze.hs             # Data structures
-    │   ├── Tile (ADT)      # Wall, Empty, Gate, Key, etc.
-    │   ├── getTile         # Pure lookup
-    │   ├── setTile         # Immutable update
-    │   └── findTile        # Recursive search
-    │
-    ├── Generator.hs        # Procedural maze generation
-    │   ├── generateMaze    # Main entry point
-    │   ├── carveMaze       # Recursive DFS carving
-    │   ├── placeGates      # Strategic gate placement
-    │   ├── ensureKeyReachable  # BFS verification
-    │   └── addSpecialWalls # Constraint-based placement
-    │
-    └── Solver.hs           # A* pathfinding
-        ├── solveMaze       # Entry point
-        ├── astar           # A* algorithm (recursive)
-        ├── getNeighborStates  # Generate valid moves
-        └── sortByHeuristic # Priority queue sorting
-```
-
-**Data Flow (Pure Functional Pipeline):**
-```
-User clicks "New Maze"
-  ↓
-generateMaze settings gen
-  ↓
-carveMaze (recursive DFS) → carved maze
-  ↓
-placeGates → maze with gates
-  ↓
-ensureKeyReachable (BFS verification) → verified maze
-  ↓
-addSpecialWalls → final maze
-  ↓
-Display in UI
-
-User clicks "Solve"
-  ↓
-solveMaze maze
-  ↓
-astar (A* algorithm) → explores states recursively
-  ↓
-getNeighborStates (generates walk/break/jump moves)
-  ↓
-sortByHeuristic (priority queue)
-  ↓
-Returns path: [Move]
-  ↓
-Animate path in UI
-```
-
-**Every step is a pure function - no mutations anywhere!**
+--- 
 
 ## 🙏 Acknowledgments
 
