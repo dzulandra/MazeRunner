@@ -158,7 +158,7 @@ ensureKeyReachable :: Maze -> Coord -> Coord -> Maze
 ensureKeyReachable maze start key =
   if canReachWithoutKey maze start key
   then maze
-  else removeBlockingGates maze start key
+  else removeOnlyBlockingGates maze start key
 
 -- Check if key is reachable from start without passing gates
 canReachWithoutKey :: Maze -> Coord -> Coord -> Bool
@@ -166,6 +166,50 @@ canReachWithoutKey maze start key =
   case simplePathfind maze start key of
     Just _ -> True
     Nothing -> False
+
+-- Find path treating gates as walkable, then remove only gates on that path
+removeOnlyBlockingGates :: Maze -> Coord -> Coord -> Maze
+removeOnlyBlockingGates maze start key =
+  case pathfindIgnoringGates maze start key of
+    Nothing -> maze  -- Can't reach even ignoring gates, leave as is
+    Just path -> 
+      let gatesOnPath = filter (\pos -> getTile maze pos == Just Gate) path
+      in foldl (\m pos -> setTile m pos Empty) maze gatesOnPath
+
+-- BFS pathfinding that treats gates as walkable (to find which gates are blocking)
+pathfindIgnoringGates :: Maze -> Coord -> Coord -> Maybe [Coord]
+pathfindIgnoringGates maze start goal 
+  | start == goal = Just [goal]
+  | otherwise = bfs [(start, [start])] Set.empty
+  where
+    bfs [] _ = Nothing
+    bfs ((current, path):queue) visited
+      | current == goal = Just (reverse path)
+      | Set.member current visited = bfs queue visited
+      | otherwise =
+          let visited' = Set.insert current visited
+              neighbors = getNeighborsIgnoringGates current
+              newNeighbors = filter (\n -> not (Set.member n visited')) neighbors
+              newQueue = [(n, n:path) | n <- newNeighbors]
+              queue' = queue ++ newQueue
+          in bfs queue' visited'
+    
+    getNeighborsIgnoringGates (r, c) =
+      [ (r', c')
+      | (dr, dc) <- directions
+      , let r' = r + dr
+      , let c' = c + dc
+      , isWalkableIgnoringGates (r', c')
+      ]
+    
+    -- Walkable = Empty, Key, Start, OR Gate (we ignore gates here)
+    isWalkableIgnoringGates pos =
+      case getTile maze pos of
+        Just Empty -> True
+        Just Key -> True
+        Just Start -> True
+        Just Gate -> True  -- Treat gates as walkable for this search
+        _ -> False
 
 -- Simple BFS pathfinding treating gates as walls
 simplePathfind :: Maze -> Coord -> Coord -> Maybe [Coord]
@@ -199,25 +243,6 @@ simplePathfind maze start goal
         Just Start -> True
         Just Gate -> False  -- IMPORTANT: Gates are NOT walkable without key!
         _ -> False
-
--- Remove gates that block path from start to key
--- Strategy: Keep removing gates until key is reachable
-removeBlockingGates :: Maze -> Coord -> Coord -> Maze
-removeBlockingGates maze start key = 
-  removeGatesUntilReachable maze (findAllGates maze) start key
-
--- Recursively remove gates until key is reachable
-removeGatesUntilReachable :: Maze -> [Coord] -> Coord -> Coord -> Maze
-removeGatesUntilReachable maze gates start key
-  -- Base case: key is reachable, we're done
-  | canReachWithoutKey maze start key = maze
-  -- No more gates to remove, return current maze
-  | null gates = maze
-  -- Try removing gates one by one
-  | otherwise =
-      let (gate:restGates) = gates
-          mazeWithoutGate = setTile maze gate Empty
-      in removeGatesUntilReachable mazeWithoutGate restGates start key
 
 -- Find all gate positions in maze
 findAllGates :: Maze -> [Coord]
