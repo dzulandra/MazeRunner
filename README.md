@@ -250,7 +250,7 @@ manhattan (r1, c1) (r2, c2) = abs (r1 - r2) + abs (c1 - c2)
 -- Easy to test: assertEquals(7, manhattan((1,2), (4,6)))
 -- Compiler can optimize (memoize, parallelize)
 ```
-**Pure FUnction Explanation:** The manhattan function is a pure function: it always returns the same distance for the same pair of coordinates. It depends only on its input values and does not read from or modify any external state. There are no side effects such as I/O, randomness, or mutation involved in the computation. This makes the function easy to test, reason about, and safely reuse throughout the project.
+**Pure Function Explanation:** The manhattan function is a pure function: it always returns the same distance for the same pair of coordinates. It depends only on its input values and does not read from or modify any external state. There are no side effects such as I/O, randomness, or mutation involved in the computation. This makes the function easy to test, reason about, and safely reuse throughout the project.
 
 **Comparison:**
 
